@@ -29,21 +29,28 @@ class WsBridge:
         self.grid_snapshot: dict = {}    # cell_key -> state
         self.current_mission: str = "SAR"
         self.estop_active: bool = False
-        self.grid_snapshot: dict = {}    # cell_key -> state
         self.searched_cells: int = 0
         self.dark_zone_total: int = 0    # cells marked dark at dispatch time
         self.mission_active: bool = False
-        self.mission_tasks_total: int = 100
+        self.mission_tasks_total: int = 0
         self.mission_tasks_done: int = 0
         self.mission_targets: list = [] # To be drawn on map
         self.server = None
+        self.killed_drones: set = set()  # drone_ids manually killed — heartbeats cannot revive these
         self._last_broadcast = 0
+        self.target_handler = None  # Will be set by main.py
 
     async def subscribe(self, topic, payload, sender):
         """Called by mesh when any MQTT topic arrives."""
 
         if topic.endswith("/heartbeat"):
             did = payload.get("drone_id", sender)
+            
+            # If this drone was manually killed, force alive=False and skip revival
+            if did in self.killed_drones:
+                payload["alive"] = False
+                payload["current_task"] = "\U0001f480 CRASHED"
+            
             was_alive = self.drones.get(did, {}).get("alive", True)
             is_alive = payload.get("alive", True)
 
@@ -64,7 +71,7 @@ class WsBridge:
                 "alive": is_alive,
                 "current_task": payload.get("current_task", "IDLE"),
                 "tasks_done": self.drone_stats[did]["tasks_done"],
-                "offline_since": self.drone_stats[did]["offline_since"],
+                "offline_since": self.drone_stats[did]["offline_since"] if not is_alive else None,
                 "last_seen": time.time(),
             }
 
@@ -89,6 +96,11 @@ class WsBridge:
             if did not in self.drone_stats:
                 self.drone_stats[did] = {"tasks_done": 0, "offline_since": None}
             ts = time.strftime("%H:%M:%S")
+            
+            # Skip task completions from killed drones (they may still be in the asyncio queue)
+            if did in self.killed_drones and event_type != "CRASH":
+                return
+
 
             if event_type == "CRASH":
                 # Drone crashed — mark it offline
@@ -231,7 +243,7 @@ class WsBridge:
             "mission": self.current_mission,
             "estop": self.estop_active,
             "coverage": round(self.searched_cells, 1),
-            "mission_pct": mission_pct if not self.mission_active else round((self.mission_tasks_done / self.mission_tasks_total * 100), 1),
+            "mission_pct": mission_pct if not self.mission_active else (round((self.mission_tasks_done / self.mission_tasks_total * 100), 1) if self.mission_tasks_total > 0 else 0.0),
             "mission_done": self.mission_tasks_done,
             "mission_total": self.mission_tasks_total,
             "mission_targets": self.mission_targets,
@@ -290,55 +302,96 @@ class WsBridge:
 
     async def _handle_inbound(self, data: dict):
         """Handle messages from dashboard (estop, mission change, etc.)"""
-        print(f"[WS_BRIDGE] inbound: {data}")
-        action = data.get("action")
-        if action == "estop":
-            self.estop_active = True
-            if hasattr(self, '_on_publish_estop') and self._on_publish_estop:
-                await self._on_publish_estop(config.TOPIC_ESTOP, {
-                    "type": "ESTOP", "issued_by": "dashboard",
-                    "timestamp": time.time(),
-                })
-            ts = time.strftime("%H:%M:%S")
-            self.events.append({"ts": ts, "kind": "E-STOP", "msg": f"EMERGENCY STOP issued by operator"})
-        elif action == "mission":
-            mission = data.get("mission")
-            if isinstance(mission, dict):
-                mission = mission.get("mission")
-            if mission and isinstance(mission, str):
-                self.current_mission = mission
-                if hasattr(self, '_on_publish_mission') and self._on_publish_mission:
-                    await self._on_publish_mission(config.TOPIC_MISSION, {
-                        "mission": mission,
+        try:
+            print(f"[WS_BRIDGE] inbound: {data}")
+            action = data.get("action")
+            
+            if action == "estop":
+                self.estop_active = True
+                if hasattr(self, '_on_publish_estop') and self._on_publish_estop:
+                    await self._on_publish_estop(config.TOPIC_ESTOP, {
+                        "type": "ESTOP", "issued_by": "dashboard",
+                        "timestamp": time.time(),
                     })
                 ts = time.strftime("%H:%M:%S")
-                self.events.append({"ts": ts, "kind": "MISSION", "msg": f"Mission set to: {mission}"})
-        elif action == "reset":
-            self.estop_active = False
-            ts = time.strftime("%H:%M:%S")
-            self.events.append({"ts": ts, "kind": "INFO", "msg": "System RESET — drones resuming"})
-            # Broadcast RESET to all drones so they clear emergency_stopped
-            if hasattr(self, '_on_publish_estop') and self._on_publish_estop:
-                await self._on_publish_estop(config.TOPIC_ESTOP, {
-                    "type": "RESET",
-                    "issued_by": "dashboard",
-                    "timestamp": time.time(),
-                })
-        elif action in ("goto_target", "dispatch_dots"):
-            target_grid = data.get("target_grid")
-            if target_grid and self.target_handler:
-                target_grid["action"] = action
-                await self.target_handler(target_grid)
-            ts = time.strftime("%H:%M:%S")
-            radius = target_grid.get("radius", 10) if target_grid else 10
-            self.events.append({"ts": ts, "kind": "TARGET",
-                                "msg": f"Target: ({target_grid.get('x','?')}, {target_grid.get('y','?')}) r={radius}"})
-        elif action == "kill":
-            drone_id = data.get("drone_id")
-            if drone_id and hasattr(self, '_on_publish_kill') and self._on_publish_kill:
-                await self._on_publish_kill(config.TOPIC_KILL, {"drone_id": drone_id})
+                self.events.append({"ts": ts, "kind": "E-STOP", "msg": f"EMERGENCY STOP issued by operator"})
+                
+            elif action == "mission":
+                mission = data.get("mission")
+                if isinstance(mission, dict):
+                    mission = mission.get("mission")
+                if mission and isinstance(mission, str):
+                    self.current_mission = mission
+                    if hasattr(self, '_on_publish_mission') and self._on_publish_mission:
+                        await self._on_publish_mission(config.TOPIC_MISSION, {
+                            "mission": mission,
+                        })
+                    ts = time.strftime("%H:%M:%S")
+                    self.events.append({"ts": ts, "kind": "MISSION", "msg": f"Mission set to: {mission}"})
+                    
+            elif action == "reset":
+                self.estop_active = False
                 ts = time.strftime("%H:%M:%S")
-                self.events.append({"ts": ts, "kind": "DAMAGE", "msg": f"Manual KILL signal sent to {drone_id}"})
+                
+                # Restore all killed drones so they can come back after reset
+                revived = []
+                for did in list(self.killed_drones):
+                    if did in self.drones:
+                        self.drones[did]["alive"] = True
+                        self.drones[did]["current_task"] = "HOVER"
+                        self.drones[did]["offline_since"] = None
+                        self.drone_stats[did]["offline_since"] = None
+                        revived.append(did)
+                self.killed_drones.clear()
+                
+                self.events.append({"ts": ts, "kind": "INFO", "msg": f"System RESET — all drones resuming ({len(revived)} restored)"})
+                # Broadcast RESET to all drone agents so they clear emergency_stopped
+                if hasattr(self, '_on_publish_estop') and self._on_publish_estop:
+                    await self._on_publish_estop(config.TOPIC_ESTOP, {
+                        "type": "RESET",
+                        "issued_by": "dashboard",
+                        "timestamp": time.time(),
+                    })
+                await self._broadcast(force=True)
+
+                    
+            elif action in ("goto_target", "dispatch_dots"):
+                target_grid = data.get("target_grid")
+                if target_grid and self.target_handler:
+                    target_grid["action"] = action
+                    await self.target_handler(target_grid)
+                ts = time.strftime("%H:%M:%S")
+                radius = target_grid.get("radius", 10) if target_grid else 10
+                self.events.append({"ts": ts, "kind": "TARGET",
+                                    "msg": f"Target: ({target_grid.get('x','?')}, {target_grid.get('y','?')}) r={radius}"})
+                                    
+            elif action == "kill":
+                drone_id = data.get("drone_id")
+                if drone_id:
+                    # Track as permanently killed so heartbeats cannot revive it
+                    self.killed_drones.add(drone_id)
+                    # Immediately mark the drone as dead in bridge state (don't wait for round-trip)
+                    ts = time.strftime("%H:%M:%S")
+                    if drone_id in self.drones:
+                        self.drones[drone_id]["alive"] = False
+                        self.drones[drone_id]["current_task"] = "\U0001f480 CRASHED"
+                        self.drones[drone_id]["offline_since"] = ts
+                        self.drone_stats.setdefault(drone_id, {"tasks_done": 0, "offline_since": None})["offline_since"] = ts
+                    self.events.append({"ts": ts, "kind": "DAMAGE", "msg": f"Manual KILL signal sent to {drone_id}"})
+                    # Also forward the kill command to main.py so the drone stops running
+                    if hasattr(self, '_on_publish_kill') and self._on_publish_kill:
+                        await self._on_publish_kill(config.TOPIC_KILL, {"drone_id": drone_id})
+                    await self._broadcast(force=True)
+                    
+            elif action == "ping":
+                # Ping received, no action needed
+                pass
+            else:
+                print(f"[WS_BRIDGE] Unknown action: {action}")
+                
+        except Exception as e:
+            print(f"[WS_BRIDGE] Error handling inbound message: {e}")
+            print(f"[WS_BRIDGE] Problematic data: {data}")
 
     async def stop(self):
         if self.server:

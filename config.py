@@ -1,9 +1,11 @@
 # config.py — shared constants for Project NOVA (Advanced Version)
 
+import os
+
 # ── NETWORK (FoxMQ / MQTT) ────────────────────────────────────────────────
-FOXMQ_HOST  = "127.0.0.1"   # change to M1's IP when available
-FOXMQ_PORT  = 1883
-WS_PORT     = 8765
+FOXMQ_HOST  = os.getenv("FOXMQ_HOST", "127.0.0.1")  # Use env var or default
+FOXMQ_PORT  = int(os.getenv("FOXMQ_PORT", "1883"))
+WS_PORT     = int(os.getenv("WS_PORT", "8765"))
 
 # FoxMQ Topics (standardized)
 TOPIC_DISCOVERY     = "nova/discovery"
@@ -26,7 +28,7 @@ METERS_PER_UNIT = 10.0      # 1 grid unit = 10 meters
 MAX_SIGNAL_RANGE = 250.0    # meters (approx WiFi range)
 SIGNAL_DECAY    = 0.5       # signal drop-off factor
 
-NUM_DRONES  = 8
+NUM_DRONES  = int(os.getenv("NUM_DRONES", "8"))
 FPS         = 30
 
 # Advanced Viewport Defaults (Initial View)
@@ -35,6 +37,13 @@ WINDOW_H    = 800
 INITIAL_VIEW_X = 0
 INITIAL_VIEW_Y = 0
 INITIAL_ZOOM   = 16         # pixels per unit (cell size)
+
+# ── DRONE START POSITIONS ─────────────────────────────────────────────────
+# Default positions for 8 drones (can be overridden)
+DEFAULT_START_POSITIONS = [
+    (0, 0), (100, 0), (0, 100), (100, 100),
+    (-100, -100), (200, 50), (50, 200), (-200, 200)
+]
 
 # ── MISSION THEMES ────────────────────────────────────────────────────────
 MISSIONS = {

@@ -87,9 +87,11 @@ class NovaMesh:
 
     async def publish(self, topic: str, payload: dict):
         if not self._is_connected: return
-        payload["drone_id"] = self.drone_id
+        # Use a copy so we don't mutate the caller's payload dict
+        msg = dict(payload)
+        msg["_sender"] = self.drone_id  # Use _sender to avoid overwriting drone_id
         if self.is_mock and SHARED_MESH:
-            SHARED_MESH.publish(topic, payload, self.drone_id)
+            SHARED_MESH.publish(topic, msg, self.drone_id)
 
     async def broadcast(self, payload: dict):
         msg_type = payload.get("type", payload.get("action", "UNKNOWN"))

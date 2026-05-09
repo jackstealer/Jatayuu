@@ -23,9 +23,8 @@ export function MissionSwitcher({
   );
 
   return (
-    <div className="flex flex-col gap-2 w-full">
-      <div className="text-[9px] font-bold tracking-[0.2em] uppercase text-slate-500">Mission</div>
-      <div className="flex gap-1.5 flex-wrap">
+    <div className="flex flex-col gap-3 w-full">
+      <div className="flex gap-2 flex-wrap justify-center">
         {MISSIONS.map((m) => {
           const isActive = current === m.key;
           return (
@@ -33,17 +32,30 @@ export function MissionSwitcher({
               key={m.key}
               id={`mission-${m.key.toLowerCase()}`}
               onClick={() => handleClick(m.key)}
-              className={`relative flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all ${
+              className={`group relative flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all duration-300 ${
                 isActive
-                  ? `bg-gradient-to-r ${m.color} border border-white/20 shadow-lg`
-                  : "bg-white/[0.03] border border-white/[0.06] text-slate-500 hover:border-white/20 hover:text-white"
+                  ? `bg-gradient-to-r ${m.color} border border-white/30 shadow-[0_0_25px_${m.accent}40] scale-105`
+                  : "bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:border-white/25 hover:text-white hover:bg-white/[0.08] hover:scale-102"
               }`}
             >
-              <span
-                className={`w-2 h-2 rounded-full ${isActive ? "bg-white animate-pulse" : "bg-slate-600"}`}
-                style={isActive ? { boxShadow: `0 0 6px ${m.accent}` } : {}}
-              />
-              {m.label}
+              <div className="relative">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full transition-all ${
+                    isActive ? "bg-white" : "bg-slate-600 group-hover:bg-slate-400"
+                  }`}
+                  style={isActive ? { boxShadow: `0 0 10px ${m.accent}` } : {}}
+                />
+                {isActive && (
+                  <span 
+                    className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-white animate-ping"
+                    style={{ animationDuration: '2s' }}
+                  />
+                )}
+              </div>
+              <span className={isActive ? "text-white" : ""}>{m.label}</span>
+              {isActive && (
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_2s_infinite]" />
+              )}
             </button>
           );
         })}

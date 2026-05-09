@@ -33,7 +33,6 @@ function latLngToGrid(lat: number, lng: number) {
 
 export function GridMap({
   state,
-  connected,
   onSendAction,
 }: {
   state: SwarmState;
@@ -48,7 +47,6 @@ export function GridMap({
   const targetLayerRef = useRef<L.LayerGroup | null>(null);
   const problemLayerRef = useRef<L.LayerGroup | null>(null);
 
-  const [is3D, setIs3D] = useState(false);
   const [target, setTarget] = useState<{
     lat: number;
     lng: number;
@@ -63,11 +61,6 @@ export function GridMap({
 
     const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OSM",
-      maxZoom: 19,
-    });
-
-    const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-      attribution: "© Esri",
       maxZoom: 19,
     });
 
@@ -249,26 +242,51 @@ export function GridMap({
     <div className="w-full h-full relative">
       <div ref={containerRef} className="w-full h-full bg-[#090a0f]" />
       
-      {/* Tactical Coordinates Overlay */}
-      <div className="absolute top-4 left-4 z-[1000] font-mono text-[10px] text-cyan-400 bg-black/60 p-2 border border-cyan-400/20 backdrop-blur-md rounded">
+      {/* Enhanced Tactical Coordinates Overlay with Glassmorphism */}
+      <div className="absolute top-4 left-4 z-[1000] font-mono text-[10px] text-cyan-400 bg-gradient-to-br from-black/80 to-cyan-950/40 p-3 border border-cyan-400/30 backdrop-blur-xl rounded-xl shadow-[0_0_30px_rgba(6,182,212,0.15)]">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_#06b6d4]" />
+          <span className="font-bold tracking-wider">TACTICAL OVERLAY</span>
+        </div>
         {state.drones.length > 0 && (
-            <div>ACTIVE MESH: {state.drones.filter(d => d.alive).length} NODES</div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">ACTIVE MESH:</span>
+              <span className="text-white font-bold">{state.drones.filter(d => d.alive).length}</span>
+              <span className="text-slate-500">NODES</span>
+            </div>
         )}
-        <div className="mt-1">GRID SCALE: 1 UNIT = 10M</div>
+        <div className="mt-1 text-slate-400">
+          <span className="text-slate-500">GRID SCALE:</span> 1 UNIT = 10M
+        </div>
       </div>
 
+      {/* Enhanced Target Acquisition Panel with Animations */}
       {target && (
-        <div className="absolute bottom-6 left-6 z-[1000] p-4 bg-black/90 border border-red-500/30 rounded-xl backdrop-blur-xl">
-           <div className="text-red-400 font-bold text-xs mb-2 uppercase tracking-widest">Target Acquired</div>
-           <div className="text-[10px] text-slate-400 font-mono mb-4">
-             COORD: {target.gridX}, {target.gridY}<br/>
-             RADIUS: 10 UNITS
+        <div className="absolute bottom-6 left-6 z-[1000] p-5 bg-gradient-to-br from-black/95 via-red-950/30 to-black/95 border border-red-500/40 rounded-2xl backdrop-blur-2xl shadow-[0_0_40px_rgba(239,68,68,0.25)] animate-[slideInLeft_0.3s_ease-out]">
+           <div className="flex items-center gap-2 mb-3">
+             <div className="w-3 h-3 bg-red-500 rounded-full animate-ping absolute" />
+             <div className="w-3 h-3 bg-red-500 rounded-full shadow-[0_0_12px_#ef4444]" />
+             <span className="text-red-400 font-bold text-xs uppercase tracking-widest ml-2">Target Acquired</span>
+           </div>
+           <div className="text-[11px] text-slate-300 font-mono mb-4 space-y-1 bg-black/30 p-3 rounded-lg border border-white/5">
+             <div className="flex justify-between">
+               <span className="text-slate-500">COORD:</span>
+               <span className="text-cyan-400 font-bold">{target.gridX}, {target.gridY}</span>
+             </div>
+             <div className="flex justify-between">
+               <span className="text-slate-500">RADIUS:</span>
+               <span className="text-emerald-400 font-bold">10 UNITS</span>
+             </div>
+             <div className="flex justify-between">
+               <span className="text-slate-500">AREA:</span>
+               <span className="text-amber-400 font-bold">~3,140 m²</span>
+             </div>
            </div>
            <button 
              onClick={() => onSendAction?.({ action: "goto_target", target_grid: { x: target.gridX, y: target.gridY }})}
-             className="w-full py-2 bg-red-600 text-xs font-bold rounded-lg hover:bg-red-500 transition-colors"
+             className="w-full py-3 bg-gradient-to-r from-red-600 via-red-500 to-red-600 text-xs font-black rounded-xl hover:from-red-500 hover:via-red-400 hover:to-red-500 transition-all duration-300 shadow-[0_0_20px_rgba(239,68,68,0.4)] hover:shadow-[0_0_30px_rgba(239,68,68,0.6)] uppercase tracking-widest border border-red-400/30 hover:scale-105 transform"
            >
-             DISPATCH SWARM
+             🚁 DISPATCH SWARM
            </button>
         </div>
       )}
